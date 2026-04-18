@@ -1,1 +1,242 @@
+```html
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudioEditor | قص الصوتيات</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+        :root { --bg: #0f172a; }
+        body { font-family: 'IBM Plex Sans Arabic', sans-serif; background-color: var(--bg); color: #f1f5f9; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        .ltr-dir { direction: ltr; }
+        .cut-item { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <nav class="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center shadow-lg">
+                    <i class="fas fa-cut text-white text-sm"></i>
+                </a>
+                <span class="text-xl font-bold tracking-tight">Audio<span class="text-green-500">Cutter</span></span>
+            </div>
+        </div>
+    </nav>
 
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 py-8">
+        <div class="glass-panel rounded-[32px] p-8 max-w-2xl mx-auto text-center">
+            <div id="dropZone" class="border-2 border-dashed border-slate-700 rounded-[24px] p-12 hover:border-green-500/50 hover:bg-green-500/5 cursor-pointer">
+                <input type="file" id="fileInput" accept="audio/*" class="hidden">
+                <div class="w-20 h-20 bg-green-600/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                    <i class="fas fa-file-audio text-3xl text-green-500"></i>
+                </div>
+                <h3 class="text-xl font-bold mb-2">اختر ملف صوتي</h3>
+                <p class="text-slate-500 text-sm">اسحب الملف هنا أو اضغط للاختيار</p>
+            </div>
+
+            <div id="statusArea" class="hidden py-12 flex flex-col items-center">
+                <div class="w-16 h-16 border-4 border-green-600/20 border-t-green-500 rounded-full animate-spin mb-4"></div>
+                <p class="font-medium text-slate-300">جاري معالجة الملف...</p>
+            </div>
+
+            <div id="cutterControls" class="hidden py-8 space-y-6">
+                <div class="bg-slate-800/50 rounded-2xl p-6 border border-white/5">
+                    <div class="mb-6">
+                        <p class="text-xs text-slate-400 mb-2 text-right">استمع للملف وحدد المواقيت:</p>
+                        <audio id="cutterPreview" controls class="w-full filter invert"></audio>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-2 text-right">وقت البداية</label>
+                            <input type="text" id="startInput" placeholder="0:00" class="w-full bg-slate-900 border border-white/10 rounded-xl p-4 text-center text-lg font-mono ltr-dir focus:border-green-500 outline-none transition-colors">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-2 text-right">وقت النهاية</label>
+                            <input type="text" id="endInput" placeholder="0:00" class="w-full bg-slate-900 border border-white/10 rounded-xl p-4 text-center text-lg font-mono ltr-dir focus:border-green-500 outline-none transition-colors">
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center mt-4 px-1">
+                        <span id="totalDurationLabel" class="text-[10px] text-slate-500 ltr-dir">مدة الملف: 00:00</span>
+                        <p class="text-[10px] text-slate-500">الصيغة: دقيقة:ثانية</p>
+                    </div>
+                </div>
+                
+                <button id="cutBtn" class="w-full py-4 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all">
+                    <i class="fas fa-cut"></i> تنفيذ القص والإضافة للقائمة
+                </button>
+
+                <div id="cutListContainer" class="hidden text-right">
+                    <h4 class="text-sm font-bold text-slate-400 mb-4 flex items-center gap-2 mt-8">
+                        <i class="fas fa-list-ul text-green-500"></i> المقاطع المستخرجة
+                    </h4>
+                    <div id="cutList" class="space-y-3"></div>
+                    <button onclick="location.reload()" class="mt-8 text-slate-500 hover:text-slate-300 text-xs underline underline-offset-4">تفريغ كل شيء والبدء من جديد</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let originalBuffer = null;
+        let fileName = '';
+        let currentFileObjectUrl = null;
+        
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const statusArea = document.getElementById('statusArea');
+        const cutterControls = document.getElementById('cutterControls');
+        const cutterPreview = document.getElementById('cutterPreview');
+        const cutList = document.getElementById('cutList');
+        const cutListContainer = document.getElementById('cutListContainer');
+        const startInput = document.getElementById('startInput');
+        const endInput = document.getElementById('endInput');
+
+        function formatTime(seconds) {
+            const min = Math.floor(seconds / 60);
+            const sec = Math.floor(seconds % 60);
+            return `${min}:${sec.toString().padStart(2, '0')}`;
+        }
+
+        function parseTime(input) {
+            if (!input.includes(':')) {
+                const val = parseFloat(input);
+                return isNaN(val) ? 0 : val;
+            }
+            const parts = input.split(':');
+            const minutes = parseFloat(parts[0]) || 0;
+            const seconds = parseFloat(parts[1]) || 0;
+            return (minutes * 60) + seconds;
+        }
+
+        dropZone.onclick = () => fileInput.click();
+
+        fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            fileName = file.name.split('.')[0];
+            dropZone.classList.add('hidden');
+            statusArea.classList.remove('hidden');
+
+            try {
+                currentFileObjectUrl = URL.createObjectURL(file);
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const arrayBuffer = await file.arrayBuffer();
+                originalBuffer = await ctx.decodeAudioData(arrayBuffer);
+                
+                statusArea.classList.add('hidden');
+                cutterControls.classList.remove('hidden');
+                cutterPreview.src = currentFileObjectUrl;
+                document.getElementById('totalDurationLabel').innerText = `مدة الملف الأصلية: ${formatTime(originalBuffer.duration)}`;
+                startInput.value = "";
+                endInput.value = "";
+            } catch (err) {
+                alert("خطأ في معالجة الملف.");
+                location.reload();
+            }
+        };
+
+        document.getElementById('cutBtn').onclick = async () => {
+            const rawStart = startInput.value.trim();
+            const rawEnd = endInput.value.trim();
+            
+            if (rawStart === "" || rawEnd === "") {
+                return alert("يرجى إدخال مواقيت البداية والنهاية أولاً");
+            }
+
+            const finalStart = parseTime(rawStart);
+            const finalEnd = parseTime(rawEnd);
+
+            if(finalStart >= finalEnd) return alert("وقت البداية يجب أن يكون أقل من وقت النهاية");
+            if(finalEnd > originalBuffer.duration) return alert("وقت النهاية يتجاوز مدة الملف");
+            
+            const btn = document.getElementById('cutBtn');
+            const originalContent = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner animate-spin"></i> جاري استخراج المقطع...';
+
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const sampleRate = originalBuffer.sampleRate;
+                const startSample = Math.floor(finalStart * sampleRate);
+                const endSample = Math.floor(finalEnd * sampleRate);
+                const frameCount = endSample - startSample;
+
+                const newBuffer = ctx.createBuffer(originalBuffer.numberOfChannels, frameCount, sampleRate);
+
+                for (let i = 0; i < originalBuffer.numberOfChannels; i++) {
+                    const now = new Float32Array(frameCount);
+                    originalBuffer.copyFromChannel(now, i, startSample);
+                    newBuffer.copyToChannel(now, i);
+                }
+
+                const blob = bufferToWave(newBuffer, frameCount);
+                addCutToList(blob, finalStart, finalEnd);
+                
+                startInput.value = "";
+                endInput.value = "";
+                startInput.focus();
+                
+            } catch (err) {
+                alert("حدث خطأ أثناء القص.");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalContent;
+            }
+        };
+
+        function addCutToList(blob, start, end) {
+            cutListContainer.classList.remove('hidden');
+            const url = URL.createObjectURL(blob);
+            const timeRange = `${formatTime(start)} إلى ${formatTime(end)}`;
+
+            const item = document.createElement('div');
+            item.className = 'cut-item bg-slate-900/50 border border-white/5 rounded-2xl p-4 mb-3';
+            item.innerHTML = `
+                <div class="flex justify-between items-center mb-3">
+                    <span class="text-[10px] text-slate-500 font-mono ltr-dir">${timeRange}</span>
+                    <a href="${url}" download="${fileName}_cut_${formatTime(start)}.wav" class="text-green-500 hover:text-green-400 text-xs font-bold flex items-center gap-1">
+                        <i class="fas fa-download"></i> تحميل
+                    </a>
+                </div>
+                <audio src="${url}" controls class="w-full h-10 filter invert"></audio>
+            `;
+            
+            cutList.insertBefore(item, cutList.firstChild);
+        }
+
+        function bufferToWave(abuffer, len) {
+            const numOfChan = abuffer.numberOfChannels;
+            const length = len * numOfChan * 2 + 44;
+            const buffer = new ArrayBuffer(length);
+            const view = new DataView(buffer);
+            let pos = 0;
+            const setUint16 = (data) => { view.setUint16(pos, data, true); pos += 2; };
+            const setUint32 = (data) => { view.setUint32(pos, data, true); pos += 4; };
+
+            setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
+            setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
+            setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan);
+            setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164);
+            setUint32(length - pos - 4);
+
+            for (let i = 0; i < abuffer.numberOfChannels; i++) {
+                const channelData = abuffer.getChannelData(i);
+                for (let j = 0; j < len; j++) {
+                    let sample = Math.max(-1, Math.min(1, channelData[j]));
+                    view.setInt16(44 + (j * numOfChan + i) * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                }
+            }
+            return new Blob([buffer], { type: "audio/wav" });
+        }
+    </script>
+</body>
+</html>
+
+```
