@@ -1,0 +1,144 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudioEditor | موازن القنوات</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+        :root { --bg: #0f172a; }
+        body { font-family: 'IBM Plex Sans Arabic', sans-serif; background-color: var(--bg); color: #f1f5f9; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <nav class="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg">
+                    <i class="fas fa-sliders-h text-white text-sm"></i>
+                </a>
+                <span class="text-xl font-bold tracking-tight">Audio<span class="text-blue-500">Balancer</span></span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 py-8">
+        <div class="glass-panel rounded-[32px] p-8 max-w-2xl mx-auto text-center">
+            <div id="dropZone" class="border-2 border-dashed border-slate-700 rounded-[24px] p-12 hover:border-blue-500/50 hover:bg-blue-500/5 cursor-pointer">
+                <input type="file" id="fileInput" accept="audio/*" class="hidden">
+                <div class="w-20 h-20 bg-blue-600/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                    <i class="fas fa-file-audio text-3xl text-blue-500"></i>
+                </div>
+                <h3 class="text-xl font-bold mb-2">اختر ملف صوتي</h3>
+                <p class="text-slate-500 text-sm">لتحويله إلى مونو متوازن (Mono)</p>
+            </div>
+
+            <div id="statusArea" class="hidden py-12 flex flex-col items-center">
+                <div class="w-16 h-16 border-4 border-blue-600/20 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+                <p class="font-medium text-slate-300">جاري موازنة القنوات...</p>
+            </div>
+
+            <div id="resultArea" class="hidden py-8">
+                <div class="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-6">
+                    <div class="flex items-center justify-center gap-2 mb-6 text-green-400">
+                        <i class="fas fa-check-circle"></i>
+                        <span class="font-bold text-sm">تمت الموازنة بنجاح</span>
+                    </div>
+                    <audio id="audioPreview" controls class="w-full mb-6 filter invert"></audio>
+                    <button id="downloadBtn" class="w-full py-4 bg-white text-slate-900 rounded-xl font-bold flex items-center justify-center gap-2 transition-transform active:scale-95">
+                        <i class="fas fa-download"></i> تحميل الملف الموزون
+                    </button>
+                    <button onclick="location.reload()" class="mt-6 text-slate-500 hover:text-slate-300 text-xs underline underline-offset-4">معالجة ملف آخر</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const statusArea = document.getElementById('statusArea');
+        const resultArea = document.getElementById('resultArea');
+        const audioPreview = document.getElementById('audioPreview');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        dropZone.onclick = () => fileInput.click();
+
+        fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const fileName = file.name.split('.')[0];
+            dropZone.classList.add('hidden');
+            statusArea.classList.remove('hidden');
+
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const arrayBuffer = await file.arrayBuffer();
+                const originalBuffer = await ctx.decodeAudioData(arrayBuffer);
+                
+                const monoBuffer = ctx.createBuffer(1, originalBuffer.length, originalBuffer.sampleRate);
+                const monoData = monoBuffer.getChannelData(0);
+
+                if (originalBuffer.numberOfChannels >= 2) {
+                    const left = originalBuffer.getChannelData(0);
+                    const right = originalBuffer.getChannelData(1);
+                    for (let i = 0; i < originalBuffer.length; i++) {
+                        monoData[i] = (left[i] + right[i]) / 2;
+                    }
+                } else {
+                    monoData.set(originalBuffer.getChannelData(0));
+                }
+
+                const wavBlob = bufferToWave(monoBuffer, monoBuffer.length);
+                const url = URL.createObjectURL(wavBlob);
+                
+                audioPreview.src = url;
+                downloadBtn.onclick = () => {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${fileName}_mono.wav`;
+                    a.click();
+                };
+
+                statusArea.classList.add('hidden');
+                resultArea.classList.remove('hidden');
+            } catch (err) {
+                alert("حدث خطأ أثناء معالجة الملف.");
+                location.reload();
+            }
+        };
+
+        function bufferToWave(abuffer, len) {
+            const numOfChan = abuffer.numberOfChannels;
+            const length = len * numOfChan * 2 + 44;
+            const buffer = new ArrayBuffer(length);
+            const view = new DataView(buffer);
+            let pos = 0;
+
+            const setUint16 = (data) => { view.setUint16(pos, data, true); pos += 2; };
+            const setUint32 = (data) => { view.setUint32(pos, data, true); pos += 4; };
+
+            setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
+            setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
+            setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan);
+            setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164);
+            setUint32(length - pos - 4);
+
+            for (let i = 0; i < abuffer.numberOfChannels; i++) {
+                const channelData = abuffer.getChannelData(i);
+                for (let j = 0; j < len; j++) {
+                    let sample = Math.max(-1, Math.min(1, channelData[j]));
+                    view.setInt16(44 + (j * numOfChan + i) * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                }
+            }
+            return new Blob([buffer], { type: "audio/wav" });
+        }
+    </script>
+</body>
+</html>
+
